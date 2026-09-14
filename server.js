@@ -1,8 +1,11 @@
 import express from 'express';
 import cors from 'cors';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { Marked } from 'marked';
+import { markedHighlight } from 'marked-highlight';
 import hljs from 'highlight.js';
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core';
 import { load as yamlLoad } from 'js-yaml';
 
 const app = express();
@@ -11,16 +14,21 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.static('public'));
 
 // ---- marked 配置 ----
-const marked = new Marked({
-  gfm: true,
-  breaks: true,
-  highlight: (code, lang) => {
+const marked = new Marked(
+  {
+    gfm: true,
+    breaks: true,
+  },
+  markedHighlight({
+    langPrefix: 'hljs language-',
+    highlight(code, lang) {
     if (lang && hljs.getLanguage(lang)) {
       return hljs.highlight(code, { language: lang }).value;
     }
     return hljs.highlightAuto(code).value;
-  },
-});
+    },
+  }),
+);
 
 const CSS_STYLES = `
   @page { margin: 2cm; }
@@ -139,6 +147,45 @@ function buildTOC(files) {
   `;
 }
 
+function findBrowserExecutable() {
+  const candidates = [process.env.BROWSER_PATH, process.env.CHROME_PATH];
+
+  if (process.platform === 'win32') {
+    const programFiles = process.env.ProgramFiles ?? 'C:\\Program Files';
+    const programFilesX86 = process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)';
+    const localAppData = process.env.LOCALAPPDATA;
+    candidates.push(
+      join(programFilesX86, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+      join(programFiles, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+      join(programFiles, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      join(programFilesX86, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      localAppData && join(localAppData, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+      localAppData && join(localAppData, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    );
+  } else if (process.platform === 'darwin') {
+    candidates.push(
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    );
+  } else {
+    candidates.push(
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/microsoft-edge',
+      '/usr/bin/microsoft-edge-stable',
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+    );
+  }
+
+  const executable = candidates.find(candidate => candidate && existsSync(candidate));
+  if (!executable) {
+    throw new Error('未找到可用的 Edge、Chrome 或 Chromium；请安装浏览器或设置 BROWSER_PATH。');
+  }
+  return executable;
+}
+
 // ---- 辅助：拼接并渲染 ----
 function renderMerged(files, includeTOC = false) {
   const tocHtml = includeTOC ? buildTOC(files) : '';
@@ -180,8 +227,20 @@ app.post('/api/export-pdf', async (req, res) => {
 <style>${CSS_STYLES}</style>
 </head><body>${bodyHtml}</body></html>`;
 
+  let browser;
   try {
-    const browser = await puppeteer.launch({ headless: true });
+    browser = await puppeteer.launch({
+      executablePath: findBrowserExecutable(),
+      headless: true,
+      pipe: true,
+      args: [
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-extensions',
+        '--disable-background-networking',
+        '--disable-component-update',
+      ],
+    });
     const page = await browser.newPage();
     await page.setContent(fullHtml, { waitUntil: 'networkidle0' });
     const pdfData = await page.pdf({
@@ -189,8 +248,6 @@ app.post('/api/export-pdf', async (req, res) => {
       printBackground: true,
       margin: { top: '2cm', bottom: '2cm', left: '2cm', right: '2cm' },
     });
-    await browser.close();
-
     const pdfBuffer = Buffer.from(pdfData);
     res.set({
       'Content-Type': 'application/pdf',
@@ -200,11 +257,16 @@ app.post('/api/export-pdf', async (req, res) => {
   } catch (err) {
     console.error('PDF 生成失败:', err);
     res.status(500).send('PDF 生成失败');
+  } finally {
+    if (browser) {
+      await browser.close().catch(err => console.error('Chromium 关闭失败:', err));
+    }
   }
 });
 
 // ---- 启动 ----
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`md-pdf-binder 运行中：http://localhost:${PORT}`);
+const HOST = process.env.HOST || '127.0.0.1';
+app.listen(PORT, HOST, () => {
+  console.log(`md-pdf-binder 运行中：http://${HOST}:${PORT}`);
 });
