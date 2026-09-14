@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>md-pdf-binder</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>md-pdf-binder</h1>
+    <p class="subtitle">多个 Markdown → 拼接排序 → 预览 → 导出 PDF</p>
+  </header>
+
+  <main>
+    <!-- 左栏：文件列表 -->
+    <section class="panel" id="file-panel">
+      <div
+        id="drop-zone"
+        class="drop-zone"
+      >
+        <p>拖入 .md 文件到这里，或</p>
+        <label class="btn btn-outline" for="file-input">选择文件</label>
+        <input
+          type="file"
+          id="file-input"
+          accept=".md,.markdown,.txt"
+          multiple
+          hidden
+        />
+      </div>
+
+      <ul id="file-list" class="file-list"></ul>
+
+      <label class="toc-option">
+        <input type="checkbox" id="chk-toc" />
+        在开头添加目录
+      </label>
+
+      <div class="panel-actions">
+        <button id="btn-merge" class="btn btn-primary" disabled>合并预览</button>
+        <button id="btn-export" class="btn btn-export" disabled>导出 PDF</button>
+      </div>
+    </section>
+
+    <!-- 右栏：预览 -->
+    <section class="panel preview-panel" id="preview-panel">
+      <div id="preview" class="preview-content">
+        <p class="placeholder">合并后的内容将在这里预览</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
